@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      protocol: TCP
+      targetPort: redis-tcp
+  clusterIP: None
+  selector:
+    app: redis
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-0
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      protocol: TCP
+      targetPort: redis-tcp
+  selector:
+    app: redis
+    statefulset.kubernetes.io/pod-name: redis-0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-1
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      protocol: TCP
+      targetPort: redis-tcp
+  selector:
+    app: redis
+    statefulset.kubernetes.io/pod-name: redis-1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-2
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      protocol: TCP
+      targetPort: redis-tcp
+  selector:
+    app: redis
+    statefulset.kubernetes.io/pod-name: redis-2
