@@ -5,12 +5,8 @@ kind: ConfigMap
 metadata:
   name: redis
 data:
-  master.conf: |
-    port 6379
-    replica-announce-ip $HOST
   replica.conf: |
     port 6379
-    replicaof $MASTER 6379
     replica-announce-ip $HOST
 ---
 # Source: redis-sentinel/templates/sentinel-configmap.yaml
@@ -237,34 +233,33 @@ spec:
             - bash
             - "-c"
             - |
-              sleep 3
               set -ex
-              #get hostname
+              #sleep to let previous pods start up
+              sleep 3
+              #get hostname to announce
               HOSTNAME=$(hostname)
-              [[ `hostname` =~ -([0-9]+)$ ]] || exit 1
-              ordinal=${BASH_REMATCH[1]}
-              if [[ $ordinal -eq 0 ]]; then
-                #if hostname ordinal is 0, then use master config
-                cp /mnt/config-map/master.conf /etc/redis.conf
-              else
-                #else use replica config
-                MASTER=
-                #check the role of every other redis pod
-                for i in {0..2}
-                do
-                  #check each redis instance if it is the master
-                  ROLE=$(redis-cli -h redis-$i --raw role | sed -n "1p")
-                  #if the redis pod has the role master, then create a replicaof that pod
-                  if [ "$ROLE" = "master" ]; then
-                    MASTER=redis-$i
-                    break
-                  fi
-                done
-                #insert master name in config
-                cp /mnt/config-map/replica.conf /etc/redis.conf
-                sed -i "s/\$MASTER/$MASTER/g" /etc/redis.conf
-              fi
+              MASTER=""
+              #check the role of every other redis pod
+              for i in {0..2}; do
+                #check each redis instance if it is the master, timeout after 3 seconds
+                ROLE=$(timeout 3 redis-cli -h redis-$i --raw role | sed -n "1p")
+                #if the redis pod has the role master, then set the master variable
+                if [[ "$ROLE" = "master" ]]; then
+                  MASTER=redis-$i
+                  echo "found master $MASTER"
+                  break
+                fi
+              done
+              #copy readonly config template
+              cp /mnt/config-map/replica.conf /etc/redis.conf
+              #replace hostname in config
               sed -i "s/\$HOST/$HOSTNAME/g" /etc/redis.conf
+              if [[ -z "$MASTER" ]]; then
+                echo "current master was not found"
+              else
+                #if a master was found, insert replicaof in config
+                echo "replicaof $MASTER 6379" > /etc/redis.conf
+              fi
           volumeMounts:
             - name: conf
               mountPath: /etc
