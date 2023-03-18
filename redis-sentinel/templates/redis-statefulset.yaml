@@ -30,6 +30,7 @@ spec:
             - bash
             - "-c"
             - |
+              sleep 3
               set -ex
               #get hostname
               HOSTNAME=$(hostname)
