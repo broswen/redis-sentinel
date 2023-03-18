@@ -1,61 +1,94 @@
+---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
-  name: {{ include "redis-sentinel.fullname" . }}
-  labels:
-    {{- include "redis-sentinel.labels" . | nindent 4 }}
+  name: redis
 spec:
-  {{- if not .Values.autoscaling.enabled }}
-  replicas: {{ .Values.replicaCount }}
-  {{- end }}
   selector:
     matchLabels:
-      {{- include "redis-sentinel.selectorLabels" . | nindent 6 }}
+      app: redis
+  serviceName: redis
+  replicas: {{ .Values.redis.replicaCount }}
+  minReadySeconds: 10 # by default is 0
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
+      {{- with .Values.redis.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "redis-sentinel.selectorLabels" . | nindent 8 }}
+        app: redis
     spec:
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      serviceAccountName: {{ include "redis-sentinel.serviceAccountName" . }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- toYaml .Values.redis.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: init-redis
+          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+          imagePullPolicy: {{ .Values.redis.image.pullPolicy }}
+          command:
+            - bash
+            - "-c"
+            - |
+              set -ex
+              HOSTNAME=$(hostname)
+              [[ `hostname` =~ -([0-9]+)$ ]] || exit 1
+              ordinal=${BASH_REMATCH[1]}
+              if [[ $ordinal -eq 0 ]]; then
+                cp /mnt/config-map/master.conf /etc/redis.conf
+              else
+                cp /mnt/config-map/replica.conf /etc/redis.conf
+              fi
+              sed -i "s/\$HOST/$HOSTNAME/g" /etc/redis.conf
+          volumeMounts:
+            - name: conf
+              mountPath: /etc
+              subPath: redis.conf
+            - name: config
+              mountPath: /mnt/config-map
       containers:
-        - name: {{ .Chart.Name }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+        - name: redis
+          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+          imagePullPolicy: {{ .Values.redis.image.pullPolicy }}
+          command:
+            - redis-server
+          args:
+            - /etc/redis.conf
+          env:
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "yes"
           ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
+            - containerPort: 6379
+              name: redis-tcp
               protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /
-              port: http
-          readinessProbe:
-            httpGet:
-              path: /
-              port: http
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+              readOnly: false
+            - name: conf
+              mountPath: /etc/
+              subPath: redis.conf
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-      {{- with .Values.nodeSelector }}
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+      volumes:
+        - name: conf
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: config
+          configMap:
+            name: redis
+        - name: redis-data
+          emptyDir:
+            sizeLimit: 500Mi
+      {{- with .Values.redis.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{- with .Values.redis.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.tolerations }}
+      {{- with .Values.redis.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}

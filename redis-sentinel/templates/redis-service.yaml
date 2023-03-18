@@ -1,15 +1,35 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "redis-sentinel.fullname" . }}
+  name: redis
   labels:
-    {{- include "redis-sentinel.labels" . | nindent 4 }}
+    app: redis
 spec:
-  type: {{ .Values.service.type }}
+  type: ClusterIP
+  clusterIP: None
   ports:
-    - port: {{ .Values.service.port }}
-      targetPort: http
+    - port: 6379
       protocol: TCP
-      name: http
+      targetPort: redis-tcp
+      name: redis
   selector:
-    {{- include "redis-sentinel.selectorLabels" . | nindent 4 }}
+    app: redis
+{{- range $index := until ( .Values.redis.replicaCount | int ) }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-{{ $index }}
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      protocol: TCP
+      targetPort: redis-tcp
+      name: redis
+  selector:
+    app: redis
+    statefulset.kubernetes.io/pod-name: redis-{{ $index }}
+{{- end }}

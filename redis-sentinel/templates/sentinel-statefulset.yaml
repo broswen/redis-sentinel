@@ -1,61 +1,83 @@
+---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
-  name: {{ include "redis-sentinel.fullname" . }}
-  labels:
-    {{- include "redis-sentinel.labels" . | nindent 4 }}
+  name: sentinel
 spec:
-  {{- if not .Values.autoscaling.enabled }}
-  replicas: {{ .Values.replicaCount }}
-  {{- end }}
   selector:
     matchLabels:
-      {{- include "redis-sentinel.selectorLabels" . | nindent 6 }}
+      app: sentinel
+  serviceName: sentinel
+  replicas: {{ .Values.sentinel.replicaCount }}
+  minReadySeconds: 10 # by default is 0
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
+      {{- with .Values.sentinel.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "redis-sentinel.selectorLabels" . | nindent 8 }}
+        app: sentinel
     spec:
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      serviceAccountName: {{ include "redis-sentinel.serviceAccountName" . }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- toYaml .Values.sentinel.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: init-sentinel
+          image: "{{ .Values.sentinel.image.repository }}:{{ .Values.sentinel.image.tag }}"
+          imagePullPolicy: {{ .Values.sentinel.image.pullPolicy }}
+          command:
+            - bash
+            - "-c"
+            - |
+              set -ex
+              HOSTNAME=$(hostname)
+              cp /mnt/config-map/sentinel.conf /etc/sentinel.conf
+              sed -i "s/\$HOST/$HOSTNAME/g" /etc/sentinel.conf
+          volumeMounts:
+            - name: conf
+              mountPath: /etc
+              subPath: sentinel.conf
+            - name: config
+              mountPath: /mnt/config-map
       containers:
-        - name: {{ .Chart.Name }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+        - name: sentinel
+          image: "{{ .Values.sentinel.image.repository }}:{{ .Values.sentinel.image.tag }}"
+          imagePullPolicy: {{ .Values.sentinel.image.pullPolicy }}
+          command:
+            - redis-server
+          args:
+            - /etc/sentinel.conf
+            - --sentinel
           ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
+            - containerPort: 26379
+              name: sentinel-tcp
               protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /
-              port: http
-          readinessProbe:
-            httpGet:
-              path: /
-              port: http
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/
+              subPath: sentinel.conf
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-      {{- with .Values.nodeSelector }}
+            {{- toYaml .Values.sentinel.resources | nindent 12 }}
+      volumes:
+        - name: conf
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: config
+          configMap:
+            name: sentinel
+        - name: sentinel-data
+          emptyDir:
+            sizeLimit: 500Mi
+      {{- with .Values.sentinel.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{- with .Values.sentinel.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.tolerations }}
+      {{- with .Values.sentinel.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}

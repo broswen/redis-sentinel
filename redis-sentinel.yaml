@@ -1,0 +1,321 @@
+---
+# Source: redis-sentinel/templates/redis-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis
+data:
+  master.conf: |
+    port 6379
+    replica-announce-ip $HOST
+  replica.conf: |
+    port 6379
+    replicaof redis-0 6379
+    replica-announce-ip $HOST
+---
+# Source: redis-sentinel/templates/sentinel-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sentinel
+data:
+  sentinel.conf: |
+    sentinel resolve-hostnames yes
+    sentinel announce-hostnames yes
+    sentinel announce-ip $HOST
+    sentinel announce-port 6379
+    sentinel monitor mymaster redis-0 6379 2
+    sentinel down-after-milliseconds mymaster 60000
+    sentinel failover-timeout mymaster 180000
+    sentinel parallel-syncs mymaster 1
+---
+# Source: redis-sentinel/templates/redis-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: 6379
+      protocol: TCP
+      targetPort: redis-tcp
+      name: redis
+  selector:
+    app: redis
+---
+# Source: redis-sentinel/templates/redis-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-0
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      protocol: TCP
+      targetPort: redis-tcp
+      name: redis
+  selector:
+    app: redis
+    statefulset.kubernetes.io/pod-name: redis-0
+---
+# Source: redis-sentinel/templates/redis-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-1
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      protocol: TCP
+      targetPort: redis-tcp
+      name: redis
+  selector:
+    app: redis
+    statefulset.kubernetes.io/pod-name: redis-1
+---
+# Source: redis-sentinel/templates/redis-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-2
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      protocol: TCP
+      targetPort: redis-tcp
+      name: redis
+  selector:
+    app: redis
+    statefulset.kubernetes.io/pod-name: redis-2
+---
+# Source: redis-sentinel/templates/sentinel-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel
+  labels:
+    app: sentinel
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: 26379
+      protocol: TCP
+      targetPort: sentinel-tcp
+      name: sentinel
+  selector:
+    app: sentinel
+---
+# Source: redis-sentinel/templates/sentinel-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel-0
+  labels:
+    app: sentinel
+spec:
+  type: ClusterIP
+  ports:
+    - port: 26379
+      protocol: TCP
+      targetPort: sentinel-tcp
+      name: sentinel
+  selector:
+    app: sentinel
+    statefulset.kubernetes.io/pod-name: sentinel-0
+---
+# Source: redis-sentinel/templates/sentinel-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel-1
+  labels:
+    app: sentinel
+spec:
+  type: ClusterIP
+  ports:
+    - port: 26379
+      protocol: TCP
+      targetPort: sentinel-tcp
+      name: sentinel
+  selector:
+    app: sentinel
+    statefulset.kubernetes.io/pod-name: sentinel-1
+---
+# Source: redis-sentinel/templates/sentinel-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel-2
+  labels:
+    app: sentinel
+spec:
+  type: ClusterIP
+  ports:
+    - port: 26379
+      protocol: TCP
+      targetPort: sentinel-tcp
+      name: sentinel
+  selector:
+    app: sentinel
+    statefulset.kubernetes.io/pod-name: sentinel-2
+---
+# Source: redis-sentinel/templates/redis-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+spec:
+  selector:
+    matchLabels:
+      app: redis
+  serviceName: redis
+  replicas: 3
+  minReadySeconds: 10 # by default is 0
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      securityContext:
+        {}
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: init-redis
+          image: "redis:7.0.9"
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - "-c"
+            - |
+              set -ex
+              HOSTNAME=$(hostname)
+              [[ `hostname` =~ -([0-9]+)$ ]] || exit 1
+              ordinal=${BASH_REMATCH[1]}
+              if [[ $ordinal -eq 0 ]]; then
+                cp /mnt/config-map/master.conf /etc/redis.conf
+              else
+                cp /mnt/config-map/replica.conf /etc/redis.conf
+              fi
+              sed -i "s/\$HOST/$HOSTNAME/g" /etc/redis.conf
+          volumeMounts:
+            - name: conf
+              mountPath: /etc
+              subPath: redis.conf
+            - name: config
+              mountPath: /mnt/config-map
+      containers:
+        - name: redis
+          image: "redis:7.0.9"
+          imagePullPolicy: IfNotPresent
+          command:
+            - redis-server
+          args:
+            - /etc/redis.conf
+          env:
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "yes"
+          ports:
+            - containerPort: 6379
+              name: redis-tcp
+              protocol: TCP
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+              readOnly: false
+            - name: conf
+              mountPath: /etc/
+              subPath: redis.conf
+          resources:
+            {}
+      volumes:
+        - name: conf
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: config
+          configMap:
+            name: redis
+        - name: redis-data
+          emptyDir:
+            sizeLimit: 500Mi
+---
+# Source: redis-sentinel/templates/sentinel-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sentinel
+spec:
+  selector:
+    matchLabels:
+      app: sentinel
+  serviceName: sentinel
+  replicas: 3
+  minReadySeconds: 10 # by default is 0
+  template:
+    metadata:
+      labels:
+        app: sentinel
+    spec:
+      securityContext:
+        {}
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: init-sentinel
+          image: "redis:7.0.9"
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - "-c"
+            - |
+              set -ex
+              HOSTNAME=$(hostname)
+              cp /mnt/config-map/sentinel.conf /etc/sentinel.conf
+              sed -i "s/\$HOST/$HOSTNAME/g" /etc/sentinel.conf
+          volumeMounts:
+            - name: conf
+              mountPath: /etc
+              subPath: sentinel.conf
+            - name: config
+              mountPath: /mnt/config-map
+      containers:
+        - name: sentinel
+          image: "redis:7.0.9"
+          imagePullPolicy: IfNotPresent
+          command:
+            - redis-server
+          args:
+            - /etc/sentinel.conf
+            - --sentinel
+          ports:
+            - containerPort: 26379
+              name: sentinel-tcp
+              protocol: TCP
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/
+              subPath: sentinel.conf
+          resources:
+            {}
+      volumes:
+        - name: conf
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: config
+          configMap:
+            name: sentinel
+        - name: sentinel-data
+          emptyDir:
+            sizeLimit: 500Mi
