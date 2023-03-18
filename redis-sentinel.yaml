@@ -8,6 +8,9 @@ data:
   replica.conf: |
     port 6379
     replica-announce-ip $HOST
+  ping.sh: |
+    set -ex
+    redis-cli ping
 ---
 # Source: redis-sentinel/templates/sentinel-configmap.yaml
 apiVersion: v1
@@ -234,8 +237,6 @@ spec:
             - "-c"
             - |
               set -ex
-              #sleep to let previous pods start up
-              sleep 3
               #get hostname to announce
               HOSTNAME=$(hostname)
               MASTER=""
@@ -260,6 +261,7 @@ spec:
                 #if a master was found, insert replicaof in config
                 echo "replicaof $MASTER 6379" > /etc/redis.conf
               fi
+              cp /mnt/config-map/ping.sh /etc/ping.sh
           volumeMounts:
             - name: conf
               mountPath: /etc
@@ -281,6 +283,21 @@ spec:
             - containerPort: 6379
               name: redis-tcp
               protocol: TCP
+          readinessProbe:
+            initialDelaySeconds: 3
+            periodSeconds: 1
+            exec:
+              command:
+                - sh
+                - -c
+                - /etc/ping.sh
+          livenessProbe:
+            initialDelaySeconds: 3
+            exec:
+              command:
+                - sh
+                - -c
+                - /etc/ping.sh
           volumeMounts:
             - name: redis-data
               mountPath: /data
@@ -297,6 +314,7 @@ spec:
         - name: config
           configMap:
             name: redis
+            defaultMode: 0777
         - name: redis-data
           emptyDir:
             sizeLimit: 500Mi

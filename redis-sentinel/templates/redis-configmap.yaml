@@ -6,3 +6,6 @@ data:
   replica.conf: |
     port 6379
     replica-announce-ip $HOST
+  ping.sh: |
+    set -ex
+    redis-cli ping
