@@ -14,6 +14,23 @@ spec:
       name: redis
   selector:
     app: redis
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-nodeport
+  labels:
+    app: redis
+spec:
+  type: NodePort
+  ports:
+    - nodePort: 30005
+      port: 6379
+      protocol: TCP
+      targetPort: redis-tcp
+      name: redis
+  selector:
+    app: redis
 {{- range $index := until ( .Values.redis.replicaCount | int ) }}
 ---
 apiVersion: v1

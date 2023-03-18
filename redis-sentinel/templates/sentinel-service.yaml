@@ -8,7 +8,24 @@ spec:
   type: ClusterIP
   clusterIP: None
   ports:
-    - port: 26379
+    - port: 46379
+      protocol: TCP
+      targetPort: sentinel-tcp
+      name: sentinel
+  selector:
+    app: sentinel
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel-nodeport
+  labels:
+    app: sentinel
+spec:
+  type: NodePort
+  ports:
+    - nodePort: 30006
+      port: 26379
       protocol: TCP
       targetPort: sentinel-tcp
       name: sentinel

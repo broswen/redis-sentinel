@@ -8,5 +8,5 @@ data:
     replica-announce-ip $HOST
   replica.conf: |
     port 6379
-    replicaof redis-0 6379
+    replicaof $MASTER 6379
     replica-announce-ip $HOST

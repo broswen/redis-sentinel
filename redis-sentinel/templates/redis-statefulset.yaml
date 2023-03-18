@@ -37,7 +37,17 @@ spec:
               if [[ $ordinal -eq 0 ]]; then
                 cp /mnt/config-map/master.conf /etc/redis.conf
               else
+                MASTER=
+                for i in {0..{{ sub .Values.redis.replicaCount 1 }}}
+                do
+                  #check each redis instance if it is the master
+                  ROLE=$(redis-cli -h redis-$i --raw role | sed -n "1p")
+                  if [ "$ROLE" = "master" ]; then
+                    MASTER=redis-$i
+                  fi
+                done
                 cp /mnt/config-map/replica.conf /etc/redis.conf
+                sed -i "s/\$MASTER/$MASTER/g" /etc/redis.conf
               fi
               sed -i "s/\$HOST/$HOSTNAME/g" /etc/redis.conf
           volumeMounts:
