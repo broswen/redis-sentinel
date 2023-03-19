@@ -8,6 +8,7 @@ data:
   replica.conf: |
     port 6379
     replica-announce-ip $HOST
+    enable-debug-command yes
   ping.sh: |
     set -ex
     redis-cli ping
@@ -21,8 +22,9 @@ data:
   sentinel.conf: |
     sentinel resolve-hostnames yes
     sentinel announce-hostnames yes
+    protected-mode no
     sentinel announce-ip $HOSTNAME
-    sentinel announce-port 6379
+    sentinel announce-port 26379
     sentinel monitor mymaster $MASTER 6379 2
     sentinel down-after-milliseconds mymaster 30000
     sentinel failover-timeout mymaster 180000
