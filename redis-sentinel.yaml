@@ -7,7 +7,6 @@ metadata:
 data:
   replica.conf: |
     port 6379
-    replica-announce-ip $HOST
     enable-debug-command yes
   ping.sh: |
     set -ex
@@ -259,12 +258,12 @@ spec:
               #copy readonly config template
               cp /mnt/config-map/replica.conf /etc/redis.conf
               #replace hostname in config
-              sed -i "s/\$HOST/$HOSTNAME/g" /etc/redis.conf
               if [[ -z "$MASTER" ]]; then
                 echo "current master was not found"
               else
-                #if a master was found, insert replicaof in config
-                echo "replicaof $MASTER 6379" > /etc/redis.conf
+                #if a master was found, insert replicaof and replica-accounce-ip in config
+                echo "replica-announce-ip $HOSTNAME" >> /etc/redis.conf
+                echo "replicaof $MASTER 6379" >> /etc/redis.conf
               fi
               cp /mnt/config-map/ping.sh /etc/ping.sh
           volumeMounts:
