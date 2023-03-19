@@ -6,9 +6,12 @@ data:
   sentinel.conf: |
     sentinel resolve-hostnames yes
     sentinel announce-hostnames yes
-    sentinel announce-ip $HOST
+    sentinel announce-ip $HOSTNAME
     sentinel announce-port 6379
-    sentinel monitor mymaster redis-0 6379 2
-    sentinel down-after-milliseconds mymaster 60000
+    sentinel monitor mymaster $MASTER 6379 2
+    sentinel down-after-milliseconds mymaster 30000
     sentinel failover-timeout mymaster 180000
     sentinel parallel-syncs mymaster 1
+  ping.sh: |
+    set -ex
+    redis-cli -p 26379 ping

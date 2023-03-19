@@ -21,12 +21,15 @@ data:
   sentinel.conf: |
     sentinel resolve-hostnames yes
     sentinel announce-hostnames yes
-    sentinel announce-ip $HOST
+    sentinel announce-ip $HOSTNAME
     sentinel announce-port 6379
-    sentinel monitor mymaster redis-0 6379 2
-    sentinel down-after-milliseconds mymaster 60000
+    sentinel monitor mymaster $MASTER 6379 2
+    sentinel down-after-milliseconds mymaster 30000
     sentinel failover-timeout mymaster 180000
     sentinel parallel-syncs mymaster 1
+  ping.sh: |
+    set -ex
+    redis-cli -p 26379 ping
 ---
 # Source: redis-sentinel/templates/redis-service.yaml
 apiVersion: v1
@@ -349,8 +352,19 @@ spec:
             - |
               set -ex
               HOSTNAME=$(hostname)
+              #check sentinel for any existing master
+              MASTER=$(timeout 3 redis-cli -h sentinel -p 26379 sentinel get-master-addr-by-name mymaster | sed -n '1p')
+              #copy readonly config
               cp /mnt/config-map/sentinel.conf /etc/sentinel.conf
-              sed -i "s/\$HOST/$HOSTNAME/g" /etc/sentinel.conf
+              if [[ -z "$MASTER" ]]; then
+                echo "no existing master found, using default redis-0"
+                sed -i "s/\$MASTER/redis-0/g" /etc/sentinel.conf
+              else
+                echo "found existing master $MASTER"
+                sed -i "s/\$MASTER/$MASTER/g" /etc/sentinel.conf
+              fi
+              sed -i "s/\$HOSTNAME/$HOSTNAME/g" /etc/sentinel.conf
+              cp /mnt/config-map/ping.sh /etc/ping.sh
           volumeMounts:
             - name: conf
               mountPath: /etc
@@ -370,6 +384,21 @@ spec:
             - containerPort: 26379
               name: sentinel-tcp
               protocol: TCP
+          readinessProbe:
+            initialDelaySeconds: 3
+            periodSeconds: 1
+            exec:
+              command:
+                - sh
+                - -c
+                - /etc/ping.sh
+          livenessProbe:
+            initialDelaySeconds: 3
+            exec:
+              command:
+                - sh
+                - -c
+                - /etc/ping.sh
           volumeMounts:
             - name: conf
               mountPath: /etc/
@@ -383,6 +412,7 @@ spec:
         - name: config
           configMap:
             name: sentinel
+            defaultMode: 0777
         - name: sentinel-data
           emptyDir:
             sizeLimit: 500Mi
