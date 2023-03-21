@@ -163,9 +163,9 @@ spec:
                 echo "NO EXISTING MASTER"
               else
                 #if a master was found, insert replicaof and replica-accounce-ip in config
-                echo "replica-announce-ip $FULL_HOSTNAME" >> /etc/redis.conf
                 echo "replicaof $MASTER 6379" >> /etc/redis.conf
               fi
+              echo "replica-announce-ip $FULL_HOSTNAME" >> /etc/redis.conf
               cp /mnt/config-map/ping.sh /etc/ping.sh
           volumeMounts:
             - name: conf
