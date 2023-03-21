@@ -83,7 +83,7 @@ spec:
               name: redis-tcp
               protocol: TCP
           readinessProbe:
-            initialDelaySeconds: 6
+            initialDelaySeconds: 20
             periodSeconds: 1
             exec:
               command:

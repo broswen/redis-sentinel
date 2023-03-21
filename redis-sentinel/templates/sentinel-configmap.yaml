@@ -9,7 +9,7 @@ data:
     sentinel announce-hostnames yes
     protected-mode no
     sentinel announce-port 26379
-    sentinel down-after-milliseconds mymaster 30000
+    sentinel down-after-milliseconds mymaster 10000
     sentinel failover-timeout mymaster 180000
     sentinel parallel-syncs mymaster 1
   ping.sh: |
