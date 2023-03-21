@@ -3,6 +3,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: sentinel
+  namespace: {{ .Values.namespace }}
 spec:
   selector:
     matchLabels:
@@ -31,19 +32,21 @@ spec:
             - "-c"
             - |
               set -ex
+              HEADLESS_SERVICE={{ .Values.namespace }}.svc.cluster.local
               HOSTNAME=$(hostname)
+              FULL_HOSTNAME=${HOSTNAME}.sentinel.${HEADLESS_SERVICE}
               #check sentinel for any existing master
-              MASTER=$(timeout 3 redis-cli -h sentinel -p 26379 sentinel get-master-addr-by-name mymaster | sed -n '1p')
+              MASTER=$(timeout 3 redis-cli -h sentinel.$HEADLESS_SERVICE -p 26379 sentinel get-master-addr-by-name mymaster | sed -n '1p')
               #copy readonly config
               cp /mnt/config-map/sentinel.conf /etc/sentinel.conf
               if [[ -z "$MASTER" ]]; then
-                echo "no existing master found, using default redis-0"
-                sed -i "s/\$MASTER/redis-0/g" /etc/sentinel.conf
+                echo "NO EXISTING MASTER, using default redis-0"
+                echo "sentinel monitor mymaster redis-0.redis.$HEADLESS_SERVICE 6379 2" >> /etc/sentinel.conf
               else
-                echo "found existing master $MASTER"
-                sed -i "s/\$MASTER/$MASTER/g" /etc/sentinel.conf
+                echo "FOUND EXISTING MASTER $MASTER"
+                echo "sentinel monitor mymaster $MASTER 6379 2" >> /etc/sentinel.conf
               fi
-              sed -i "s/\$HOSTNAME/$HOSTNAME/g" /etc/sentinel.conf
+              echo "sentinel announce-ip $FULL_HOSTNAME" >> /etc/sentinel.conf
               cp /mnt/config-map/ping.sh /etc/ping.sh
           volumeMounts:
             - name: conf
@@ -73,7 +76,7 @@ spec:
                 - -c
                 - /etc/ping.sh
           livenessProbe:
-            initialDelaySeconds: 3
+            initialDelaySeconds: 10
             exec:
               command:
                 - sh

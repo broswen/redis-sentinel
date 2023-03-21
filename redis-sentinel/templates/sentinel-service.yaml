@@ -2,6 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: sentinel
+  namespace: {{ .Values.namespace }}
   labels:
     app: sentinel
 spec:
@@ -19,6 +20,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: sentinel-nodeport
+  namespace: {{ .Values.namespace }}
   labels:
     app: sentinel
 spec:
@@ -31,22 +33,3 @@ spec:
       name: sentinel
   selector:
     app: sentinel
-{{- range $index := until ( .Values.sentinel.replicaCount | int ) }}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: sentinel-{{ $index }}
-  labels:
-    app: sentinel
-spec:
-  type: ClusterIP
-  ports:
-    - port: 26379
-      protocol: TCP
-      targetPort: sentinel-tcp
-      name: sentinel
-  selector:
-    app: sentinel
-    statefulset.kubernetes.io/pod-name: sentinel-{{ $index }}
-{{- end }}

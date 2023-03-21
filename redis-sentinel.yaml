@@ -4,6 +4,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: redis
+  namespace: redis-sentinel
 data:
   replica.conf: |
     port 6379
@@ -17,14 +18,13 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: sentinel
+  namespace: redis-sentinel
 data:
   sentinel.conf: |
     sentinel resolve-hostnames yes
     sentinel announce-hostnames yes
     protected-mode no
-    sentinel announce-ip $HOSTNAME
     sentinel announce-port 26379
-    sentinel monitor mymaster $MASTER 6379 2
     sentinel down-after-milliseconds mymaster 30000
     sentinel failover-timeout mymaster 180000
     sentinel parallel-syncs mymaster 1
@@ -37,6 +37,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: redis
+  namespace: redis-sentinel
   labels:
     app: redis
 spec:
@@ -55,6 +56,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: redis-nodeport
+  namespace: redis-sentinel
   labels:
     app: redis
 spec:
@@ -68,65 +70,12 @@ spec:
   selector:
     app: redis
 ---
-# Source: redis-sentinel/templates/redis-service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis-0
-  labels:
-    app: redis
-spec:
-  type: ClusterIP
-  ports:
-    - port: 6379
-      protocol: TCP
-      targetPort: redis-tcp
-      name: redis
-  selector:
-    app: redis
-    statefulset.kubernetes.io/pod-name: redis-0
----
-# Source: redis-sentinel/templates/redis-service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis-1
-  labels:
-    app: redis
-spec:
-  type: ClusterIP
-  ports:
-    - port: 6379
-      protocol: TCP
-      targetPort: redis-tcp
-      name: redis
-  selector:
-    app: redis
-    statefulset.kubernetes.io/pod-name: redis-1
----
-# Source: redis-sentinel/templates/redis-service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis-2
-  labels:
-    app: redis
-spec:
-  type: ClusterIP
-  ports:
-    - port: 6379
-      protocol: TCP
-      targetPort: redis-tcp
-      name: redis
-  selector:
-    app: redis
-    statefulset.kubernetes.io/pod-name: redis-2
----
 # Source: redis-sentinel/templates/sentinel-service.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: sentinel
+  namespace: redis-sentinel
   labels:
     app: sentinel
 spec:
@@ -145,6 +94,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: sentinel-nodeport
+  namespace: redis-sentinel
   labels:
     app: sentinel
 spec:
@@ -158,65 +108,12 @@ spec:
   selector:
     app: sentinel
 ---
-# Source: redis-sentinel/templates/sentinel-service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: sentinel-0
-  labels:
-    app: sentinel
-spec:
-  type: ClusterIP
-  ports:
-    - port: 26379
-      protocol: TCP
-      targetPort: sentinel-tcp
-      name: sentinel
-  selector:
-    app: sentinel
-    statefulset.kubernetes.io/pod-name: sentinel-0
----
-# Source: redis-sentinel/templates/sentinel-service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: sentinel-1
-  labels:
-    app: sentinel
-spec:
-  type: ClusterIP
-  ports:
-    - port: 26379
-      protocol: TCP
-      targetPort: sentinel-tcp
-      name: sentinel
-  selector:
-    app: sentinel
-    statefulset.kubernetes.io/pod-name: sentinel-1
----
-# Source: redis-sentinel/templates/sentinel-service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: sentinel-2
-  labels:
-    app: sentinel
-spec:
-  type: ClusterIP
-  ports:
-    - port: 26379
-      protocol: TCP
-      targetPort: sentinel-tcp
-      name: sentinel
-  selector:
-    app: sentinel
-    statefulset.kubernetes.io/pod-name: sentinel-2
----
 # Source: redis-sentinel/templates/redis-statefulset.yaml
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: redis
+  namespace: redis-sentinel
 spec:
   selector:
     matchLabels:
@@ -240,18 +137,22 @@ spec:
             - bash
             - "-c"
             - |
+              #delay to let DNS for headless service from previous pod register
+              sleep 3
               set -ex
               #get hostname to announce
+              HEADLESS_SERVICE=redis-sentinel.svc.cluster.local
               HOSTNAME=$(hostname)
+              FULL_HOSTNAME=${HOSTNAME}.redis.${HEADLESS_SERVICE}
               MASTER=""
               #check the role of every other redis pod
               for i in {0..2}; do
                 #check each redis instance if it is the master, timeout after 3 seconds
-                ROLE=$(timeout 3 redis-cli -h redis-$i --raw role | sed -n "1p")
+                ROLE=$(timeout 3 redis-cli -h redis-$i.redis.$HEADLESS_SERVICE --raw role | sed -n "1p")
                 #if the redis pod has the role master, then set the master variable
                 if [[ "$ROLE" = "master" ]]; then
-                  MASTER=redis-$i
-                  echo "found master $MASTER"
+                  MASTER=redis-$i.redis.$HEADLESS_SERVICE
+                  echo "FOUND MASTER $MASTER"
                   break
                 fi
               done
@@ -259,10 +160,10 @@ spec:
               cp /mnt/config-map/replica.conf /etc/redis.conf
               #replace hostname in config
               if [[ -z "$MASTER" ]]; then
-                echo "current master was not found"
+                echo "NO EXISTING MASTER"
               else
                 #if a master was found, insert replicaof and replica-accounce-ip in config
-                echo "replica-announce-ip $HOSTNAME" >> /etc/redis.conf
+                echo "replica-announce-ip $FULL_HOSTNAME" >> /etc/redis.conf
                 echo "replicaof $MASTER 6379" >> /etc/redis.conf
               fi
               cp /mnt/config-map/ping.sh /etc/ping.sh
@@ -288,7 +189,7 @@ spec:
               name: redis-tcp
               protocol: TCP
           readinessProbe:
-            initialDelaySeconds: 3
+            initialDelaySeconds: 6
             periodSeconds: 1
             exec:
               command:
@@ -296,7 +197,7 @@ spec:
                 - -c
                 - /etc/ping.sh
           livenessProbe:
-            initialDelaySeconds: 3
+            initialDelaySeconds: 10
             exec:
               command:
                 - sh
@@ -328,6 +229,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: sentinel
+  namespace: redis-sentinel
 spec:
   selector:
     matchLabels:
@@ -352,19 +254,21 @@ spec:
             - "-c"
             - |
               set -ex
+              HEADLESS_SERVICE=redis-sentinel.svc.cluster.local
               HOSTNAME=$(hostname)
+              FULL_HOSTNAME=${HOSTNAME}.sentinel.${HEADLESS_SERVICE}
               #check sentinel for any existing master
-              MASTER=$(timeout 3 redis-cli -h sentinel -p 26379 sentinel get-master-addr-by-name mymaster | sed -n '1p')
+              MASTER=$(timeout 3 redis-cli -h sentinel.$HEADLESS_SERVICE -p 26379 sentinel get-master-addr-by-name mymaster | sed -n '1p')
               #copy readonly config
               cp /mnt/config-map/sentinel.conf /etc/sentinel.conf
               if [[ -z "$MASTER" ]]; then
-                echo "no existing master found, using default redis-0"
-                sed -i "s/\$MASTER/redis-0/g" /etc/sentinel.conf
+                echo "NO EXISTING MASTER, using default redis-0"
+                echo "sentinel monitor mymaster redis-0.redis.$HEADLESS_SERVICE 6379 2" >> /etc/sentinel.conf
               else
-                echo "found existing master $MASTER"
-                sed -i "s/\$MASTER/$MASTER/g" /etc/sentinel.conf
+                echo "FOUND EXISTING MASTER $MASTER"
+                echo "sentinel monitor mymaster $MASTER 6379 2" >> /etc/sentinel.conf
               fi
-              sed -i "s/\$HOSTNAME/$HOSTNAME/g" /etc/sentinel.conf
+              echo "sentinel announce-ip $FULL_HOSTNAME" >> /etc/sentinel.conf
               cp /mnt/config-map/ping.sh /etc/ping.sh
           volumeMounts:
             - name: conf
@@ -394,7 +298,7 @@ spec:
                 - -c
                 - /etc/ping.sh
           livenessProbe:
-            initialDelaySeconds: 3
+            initialDelaySeconds: 10
             exec:
               command:
                 - sh

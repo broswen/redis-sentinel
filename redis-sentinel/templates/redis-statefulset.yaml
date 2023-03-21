@@ -3,6 +3,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: redis
+  namespace: {{ .Values.namespace }}
 spec:
   selector:
     matchLabels:
@@ -30,18 +31,22 @@ spec:
             - bash
             - "-c"
             - |
+              #delay to let DNS for headless service from previous pod register
+              sleep 3
               set -ex
               #get hostname to announce
+              HEADLESS_SERVICE={{ .Values.namespace }}.svc.cluster.local
               HOSTNAME=$(hostname)
+              FULL_HOSTNAME=${HOSTNAME}.redis.${HEADLESS_SERVICE}
               MASTER=""
               #check the role of every other redis pod
               for i in {0..2}; do
                 #check each redis instance if it is the master, timeout after 3 seconds
-                ROLE=$(timeout 3 redis-cli -h redis-$i --raw role | sed -n "1p")
+                ROLE=$(timeout 3 redis-cli -h redis-$i.redis.$HEADLESS_SERVICE --raw role | sed -n "1p")
                 #if the redis pod has the role master, then set the master variable
                 if [[ "$ROLE" = "master" ]]; then
-                  MASTER=redis-$i
-                  echo "found master $MASTER"
+                  MASTER=redis-$i.redis.$HEADLESS_SERVICE
+                  echo "FOUND MASTER $MASTER"
                   break
                 fi
               done
@@ -49,10 +54,10 @@ spec:
               cp /mnt/config-map/replica.conf /etc/redis.conf
               #replace hostname in config
               if [[ -z "$MASTER" ]]; then
-                echo "current master was not found"
+                echo "NO EXISTING MASTER"
               else
                 #if a master was found, insert replicaof and replica-accounce-ip in config
-                echo "replica-announce-ip $HOSTNAME" >> /etc/redis.conf
+                echo "replica-announce-ip $FULL_HOSTNAME" >> /etc/redis.conf
                 echo "replicaof $MASTER 6379" >> /etc/redis.conf
               fi
               cp /mnt/config-map/ping.sh /etc/ping.sh
@@ -78,7 +83,7 @@ spec:
               name: redis-tcp
               protocol: TCP
           readinessProbe:
-            initialDelaySeconds: 3
+            initialDelaySeconds: 6
             periodSeconds: 1
             exec:
               command:
@@ -86,7 +91,7 @@ spec:
                 - -c
                 - /etc/ping.sh
           livenessProbe:
-            initialDelaySeconds: 3
+            initialDelaySeconds: 10
             exec:
               command:
                 - sh
